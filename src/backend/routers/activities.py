@@ -6,12 +6,21 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import RedirectResponse
 from typing import Dict, Any, Optional, List
 
-from ..database import activities_collection, teachers_collection
+from ..database import activities_collection, teachers_collection, db_available
 
 router = APIRouter(
     prefix="/activities",
     tags=["activities"]
 )
+
+
+def check_db_available():
+    """Check if database is available and raise error if not"""
+    if not db_available:
+        raise HTTPException(
+            status_code=503,
+            detail="Database unavailable. Please ensure MongoDB is running."
+        )
 
 
 @router.get("", response_model=Dict[str, Any])
@@ -28,6 +37,7 @@ def get_activities(
     - start_time: Filter activities starting at or after this time (24-hour format, e.g., '14:30')
     - end_time: Filter activities ending at or before this time (24-hour format, e.g., '17:00')
     """
+    check_db_available()
     # Build the query based on provided filters
     query = {}
 
@@ -52,6 +62,7 @@ def get_activities(
 @router.get("/days", response_model=List[str])
 def get_available_days() -> List[str]:
     """Get a list of all days that have activities scheduled"""
+    check_db_available()
     # Aggregate to get unique days across all activities
     pipeline = [
         {"$unwind": "$schedule_details.days"},
@@ -69,6 +80,7 @@ def get_available_days() -> List[str]:
 @router.post("/{activity_name}/signup")
 def signup_for_activity(activity_name: str, email: str, teacher_username: Optional[str] = Query(None)):
     """Sign up a student for an activity - requires teacher authentication"""
+    check_db_available()
     # Check teacher authentication
     if not teacher_username:
         raise HTTPException(
@@ -105,6 +117,7 @@ def signup_for_activity(activity_name: str, email: str, teacher_username: Option
 @router.post("/{activity_name}/unregister")
 def unregister_from_activity(activity_name: str, email: str, teacher_username: Optional[str] = Query(None)):
     """Remove a student from an activity - requires teacher authentication"""
+    check_db_available()
     # Check teacher authentication
     if not teacher_username:
         raise HTTPException(
