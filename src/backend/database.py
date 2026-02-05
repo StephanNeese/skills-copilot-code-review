@@ -3,13 +3,36 @@ MongoDB database configuration and setup for Mergington High School API
 """
 
 from pymongo import MongoClient
+from pymongo.errors import ServerSelectionTimeoutError, ConnectionFailure
 from argon2 import PasswordHasher, exceptions as argon2_exceptions
+import warnings
+import os
 
-# Connect to MongoDB
-client = MongoClient('mongodb://localhost:27017/')
-db = client['mergington_high']
-activities_collection = db['activities']
-teachers_collection = db['teachers']
+# MongoDB configuration from environment with sensible defaults
+MONGODB_URI = os.getenv("MONGODB_URI", "mongodb://localhost:27017/")
+try:
+    MONGODB_TIMEOUT_MS = int(os.getenv("MONGODB_TIMEOUT_MS", "2000"))
+except ValueError:
+    warnings.warn("Invalid MONGODB_TIMEOUT_MS environment value; falling back to 2000 ms.")
+    MONGODB_TIMEOUT_MS = 2000
+
+# Connect to MongoDB with timeout
+try:
+    client = MongoClient(MONGODB_URI, serverSelectionTimeoutMS=MONGODB_TIMEOUT_MS)
+    # Test the connection
+    client.admin.command('ping')
+    db = client['mergington_high']
+    activities_collection = db['activities']
+    teachers_collection = db['teachers']
+    db_available = True
+    print("✓ MongoDB connection established successfully")
+except (ServerSelectionTimeoutError, ConnectionFailure) as e:
+    warnings.warn(f"MongoDB connection failed: {e}. App will start without database.")
+    client = None
+    db = None
+    activities_collection = None
+    teachers_collection = None
+    db_available = False
 
 # Methods
 
@@ -38,17 +61,26 @@ def verify_password(hashed_password: str, plain_password: str) -> bool:
 
 def init_database():
     """Initialize database if empty"""
+    
+    if not db_available:
+        warnings.warn("Skipping database initialization - MongoDB is not available")
+        return
 
-    # Initialize activities if empty
-    if activities_collection.count_documents({}) == 0:
-        for name, details in initial_activities.items():
-            activities_collection.insert_one({"_id": name, **details})
+    try:
+        # Initialize activities if empty
+        if activities_collection.count_documents({}) == 0:
+            for name, details in initial_activities.items():
+                activities_collection.insert_one({"_id": name, **details})
 
-    # Initialize teacher accounts if empty
-    if teachers_collection.count_documents({}) == 0:
-        for teacher in initial_teachers:
-            teachers_collection.insert_one(
-                {"_id": teacher["username"], **teacher})
+        # Initialize teacher accounts if empty
+        if teachers_collection.count_documents({}) == 0:
+            for teacher in initial_teachers:
+                teachers_collection.insert_one(
+                    {"_id": teacher["username"], **teacher})
+        
+        print("✓ Database initialized successfully")
+    except Exception as e:
+        warnings.warn(f"Database initialization failed: {e}")
 
 
 # Initial database if empty
